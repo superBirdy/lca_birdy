@@ -13,7 +13,7 @@ class Flow:
         self.flow_type = flow_type
         self.r = r
         self.description = description.strip().lower()
-        self.displacement_product = displacement_product.strip().lower()
+        self.displacement_product = displacement_product.strip()
         self.displacement_ratio = float(displacement_ratio) if displacement_ratio else 0.0
 
 class Process:
@@ -132,7 +132,7 @@ def apply_displacement(df_base, impact_factors):
     adjusted_impacts = []
 
     for idx, row in df_base.iterrows():
-        dp_name = row.get("Displacement Product", "").strip().lower()
+        dp_name = row.get("Displacement Product", "").strip()
         dp_ratio = row.get("Displacement Ratio", 0.0)
         amount = row["Amount"]
 
@@ -204,50 +204,43 @@ def normalize_impact_per_product(df_lcia, processes, impact_column="Impact (kg C
 import pandas as pd
 import matplotlib.pyplot as plt
 
+
 def plot_normalized_stacked_impact_by_process_multi(
     df_dict,
     processes,
-    selected_processes
+    selected_processes,
+    save_path=None
 ):
-    """
-    Plot normalized (per unit product) stacked bar charts for multiple scenarios,
-    showing flow contributions per process. Uses correct impact column per scenario.
-    Adds total impact labels above each bar.
-    """
     selected_normalized = [p.strip().lower() for p in selected_processes]
 
-    # Step 1: Build product amount map
+    # Step 1: Map product output per process
     product_amount_map = {}
     for proc in processes:
-        name = proc.name.strip()
-        name_norm = name.lower()
+        proc_name = proc.name.strip()
+        proc_norm = proc_name.lower()
         product_flows = [f for f in proc.outputs if getattr(f, 'description', '').strip().lower() == "product"]
         total_product = sum(f.amount for f in product_flows)
-        product_amount_map[name_norm] = total_product if total_product > 0 else None
+        product_amount_map[proc_norm] = total_product if total_product > 0 else None
 
     all_data = []
 
-    # Step 2: Loop through each scenario
+    # Step 2: Collect normalized impacts
     for scenario_name, df in df_dict.items():
         df = df.copy()
         df["Process Name"] = df["Process Name"].str.strip()
         df["Scenario"] = scenario_name
 
-        # ✅ Pick correct impact column
-        if scenario_name.lower() in ["base", "renewable"]:
-            impact_col = "Impact (kg CO2e)"
-        else:
-            impact_col = "Adjusted Impact (kg CO2e)"
+        # Smart impact column
+        impact_col = "Impact (kg CO2e)" if scenario_name.lower() in ["base", "renewable"] else "Adjusted Impact (kg CO2e)"
 
         for _, row in df.iterrows():
             proc_name = row["Process Name"]
-            proc_name_norm = proc_name.lower()
+            proc_norm = proc_name.lower()
 
-            if proc_name_norm not in selected_normalized:
+            if proc_norm not in selected_normalized:
                 continue
 
-            product_amount = product_amount_map.get(proc_name_norm)
-
+            product_amount = product_amount_map.get(proc_norm)
             impact_value = row.get(impact_col, 0)
 
             if product_amount and product_amount > 0:
@@ -277,6 +270,9 @@ def plot_normalized_stacked_impact_by_process_multi(
         fill_value=0
     )
 
+    # ✅ Drop flows with zero impact across all processes
+    pivot_df = pivot_df.loc[:, (pivot_df != 0).any(axis=0)]
+
     # Plot
     ax = pivot_df.plot(
         kind="bar",
@@ -285,16 +281,35 @@ def plot_normalized_stacked_impact_by_process_multi(
         edgecolor='black'
     )
 
-    # Add total labels
+    # Total labels on bars
     for i, (idx, row) in enumerate(pivot_df.iterrows()):
         total = row.sum()
         ax.text(i, total + 0.01 * pivot_df.values.max(), f"{total:.4f}", ha='center', va='bottom', fontsize=9)
 
-    #plt.title("Normalized Stacked Impact per Product Unit (by Scenario & Process)")
-    plt.ylabel("Impact (kg CO2e per unit product)")
-    plt.xlabel("Scenario + Process")
-    plt.xticks(rotation=45, ha='right')
-    plt.legend(title="Flow Name", bbox_to_anchor=(1.05, 1), loc='upper left')
+    process_label = ", ".join(selected_processes)
+    plt.title(f"Processes: {process_label}")
+    plt.ylabel("Impact (kg CO2e per kg product)")
+    #plt.xlabel(selected_processes[0])
+    # Custom x-axis labels: only scenario name
+    xtick_labels = [idx[0] for idx in pivot_df.index]  # extract only scenario part
+    plt.xticks(ticks=range(len(xtick_labels)), labels=xtick_labels, rotation=0, ha='center')
+
+
+    # ✅ Only show legend for active flows
+    if pivot_df.shape[1] > 0:
+        plt.legend(title="Flow Name", bbox_to_anchor=(1.05, 1), loc='upper left')
+    else:
+        plt.legend().remove()
+
     plt.grid(axis='y', linestyle='--', alpha=0.5)
     plt.tight_layout()
+
+    # ✅ Save plot if path provided
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"✅ Plot saved to: {save_path}")
+
     plt.show()
+
+
+
