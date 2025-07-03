@@ -231,7 +231,7 @@ def plot_normalized_stacked_impact_by_process_multi(
         df["Scenario"] = scenario_name
 
         # Smart impact column
-        impact_col = "Impact (kg CO2e)" if scenario_name.lower() in ["base", "renewable"] else "Adjusted Impact (kg CO2e)"
+        impact_col = "Adjusted Impact (kg CO2e)" if any(x in scenario_name.lower() for x in ["displacement"]) else "Impact (kg CO2e)"
 
         for _, row in df.iterrows():
             proc_name = row["Process Name"]
